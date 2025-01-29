@@ -1,0 +1,105 @@
+import kagglehub
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, confusion_matrix
+
+# Funktion zum Laden der Daten aus Kaggle
+def load_data():
+
+    path = kagglehub.dataset_download("uciml/breast-cancer-wisconsin-data")
+    print("Path to dataset files:", path)
+    data = pd.read_csv(f"{path}/data.csv")
+    if 'Unnamed: 32' in data.columns:
+        data = data.drop(columns=['Unnamed: 32'])
+        print("Spalte 'Unnamed: 32' entfernt.")
+    return data
+
+# Funktion zur Vorverarbeitung der Daten
+def preprocess_data(data):
+    
+    X = data.drop(columns=['diagnosis'])
+    y = data['diagnosis'].map({'B': 0, 'M': 1})
+    return X, y
+
+# Funktion zur Bestimmung der wichtigsten Merkmale
+def feature_importance(X, y):
+    
+    model = RandomForestClassifier(random_state=42).fit(X, y)
+    importance_df = pd.DataFrame({'Feature': X.columns, 'Importance': model.feature_importances_})
+    return importance_df.sort_values(by='Importance', ascending=False)
+
+# Funktion zur Aufteilung und Skalierung der Daten
+def split_and_scale_data(X, y):
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+    return X_train_scaled, X_test_scaled, y_train, y_test
+
+# Funktion zur Hyperparameter-Tuning des Random-Forest-Modells
+def tune_random_forest(X_train, y_train):
+    
+    param_grid = {
+        'n_estimators': [10, 50, 100],
+        'max_depth': [None, 10, 20],
+        'min_samples_split': [2, 5, 10]
+    }
+    grid_search = GridSearchCV(RandomForestClassifier(random_state=42), param_grid, cv=5)
+    grid_search.fit(X_train, y_train)
+    return grid_search.best_params_
+
+# Funktion zur Modell-Trainierung und Bewertung
+def train_and_evaluate_models(X_train, X_test, y_train, y_test):
+    
+    models = {
+        "Logistic Regression": LogisticRegression(random_state=42),
+        "Support Vector Machine": SVC(probability=True, random_state=42),
+        "Random Forest": RandomForestClassifier(random_state=42),
+        "K-Nearest Neighbors": KNeighborsClassifier()
+    }
+    results = []
+    for name, model in models.items():
+        model.fit(X_train, y_train)
+        y_train_pred = model.predict(X_train)
+        y_test_pred = model.predict(X_test)
+        y_test_prob = model.predict_proba(X_test)[:, 1]
+        auc_roc = roc_auc_score(y_test, y_test_prob)
+        cm = confusion_matrix(y_test, y_test_pred)
+        print(f"Confusion Matrix für {name}:")
+        print(cm)
+        results.append({
+            "Model": name,
+            "Train Accuracy": accuracy_score(y_train, y_train_pred),
+            "Test Accuracy": accuracy_score(y_test, y_test_pred),
+            "Precision": precision_score(y_test, y_test_pred),
+            "Recall": recall_score(y_test, y_test_pred),
+            "F1 Score": f1_score(y_test, y_test_pred),
+            "AUC-ROC": auc_roc
+        })
+    return pd.DataFrame(results)
+
+# Hauptfunktion zur Ausführung des Skripts
+def main():
+    
+    data = load_data()
+    X, y = preprocess_data(data)
+    print("\nWichtigste Merkmale zur Krebsdiagnose:")
+    print(feature_importance(X, y).head(10))
+    X_train, X_test, y_train, y_test = split_and_scale_data(X, y)
+    print("\nDaten erfolgreich aufgeteilt:")
+    print(f"Trainingsdaten: {X_train.shape[0]} Zeilen")
+    print(f"Testdaten: {X_test.shape[0]} Zeilen")
+    print("\nBeste Parameter für Random Forest:", tune_random_forest(X_train, y_train))
+    results_df = train_and_evaluate_models(X_train, X_test, y_train, y_test)
+    print("\nModellevaluationsergebnisse:")
+    print(results_df)
+
+if __name__ == "__main__":
+    main()
